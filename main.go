@@ -3,18 +3,16 @@ package main
 import (
 	"appengine"
 	"appengine/datastore"
-//	"encoding/json"
 	"github.com/gorilla/mux"
-	//"html"
-	//"log"
-	//"appengine/user"
-	"fmt"
 	"html/template"
 	"net/http"
-	"strconv"
 	"time"
 )
-
+type users struct {
+	UserName       string
+	Password       string
+	DateRegistered time.Time
+}
 func init() {
 
 	router := mux.NewRouter().StrictSlash(true)
