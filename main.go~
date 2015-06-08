@@ -3,284 +3,31 @@ package main
 import (
 	"appengine"
 	"appengine/datastore"
-	"encoding/json"
+//	"encoding/json"
 	"github.com/gorilla/mux"
 	//"html"
 	//"log"
 	//"appengine/user"
-	"fmt"
+	//"fmt"
 	"html/template"
 	"net/http"
-	"strconv"
+	//"strconv"
 	"time"
 )
-
-func init() {
-
-	router := mux.NewRouter().StrictSlash(true)
-
-	router.Handle("/static/CSS/", http.StripPrefix("/static/CSS/", http.FileServer(http.Dir("static/CSS"))))
-
-	router.HandleFunc("/apiv1/farm/{farmID}", createHandler)
-	router.HandleFunc("/apiv1/farm/", farmIndexHandler)
-	router.HandleFunc("/apiv1/recipe/{recipeID}", recipeValHandler)
-	router.HandleFunc("/apiv1/recipe/", recipeIndexHandler)
-	router.HandleFunc("/apiv1/", apiIndexHandler)
-	router.HandleFunc("/master/", masterListHandler)
-	router.HandleFunc("/createrecipe/", createRecipeHandler)
-	router.HandleFunc("/main", mainHandler)
-	router.HandleFunc("/", rootHandler)
-
-	http.Handle("/", router)
-}
-
 type users struct {
 	UserName       string
 	Password       string
 	DateRegistered time.Time
 }
+func init() {
 
-type variables struct {
-	VariableName string
-	Description  string
-	Unit         string
-	Validation   string
-	DateAdded    time.Time
-}
+	router := mux.NewRouter().StrictSlash(true)
 
-type values struct {
-	TimeCreated time.Time `json:"time created"`
-	TimeStored  time.Time `json:"time stored"`
-	DeviceUse   string    `json:"device use"`
-	VariableID  string    `json:"variable id"`
-	FarmID      string    `json:"farm id"`
-	Token       string    `json:"token"`
-	Value       string    `json:"value"`
-}
+	router.Handle("/static/CSS/", http.StripPrefix("/static/CSS/", http.FileServer(http.Dir("static/CSS"))))
+	router.HandleFunc("/main", mainHandler)
+	router.HandleFunc("/", rootHandler)
 
-type recipes struct {
-	Recipeid    string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	RecipeVars  string    `json:"recipe variables"`
-	DateCreated time.Time `json:"date created"`
-}
-
-func farmIndexHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-		w.WriteHeader(http.StatusOK)
-
-		c := appengine.NewContext(r)
-		q := datastore.NewQuery("tblDATA")
-		//fmt.Fprintln(w, "{\nfarm: {[")
-		for t := q.Run(c); ; {
-			var x values
-			_, err := t.Next(&x)
-			if err == datastore.Done {
-				break
-			}
-			if err != nil {
-				c.Infof("Error in querying datastore: %v", err)
-				errorHandler(w, r, http.StatusInternalServerError, "")
-			}
-
-			response, err := json.MarshalIndent(x, "", "  ")
-			if err != nil {
-				errorHandler(w, r, http.StatusInternalServerError, "")
-			}
-
-			fmt.Fprintln(w, string(response))
-
-		}
-		//fmt.Fprint(w, "]}\n}")
-	} else {
-		fmt.Fprintln(w, "ACCESS DENIED!")
-		return
-	}
-}
-
-func createHandler(w http.ResponseWriter, r *http.Request) {
-
-	if r.Method == "GET" {
-		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-		w.WriteHeader(http.StatusOK)
-
-		vars := mux.Vars(r)
-		farmID := vars["farmID"]
-
-		c := appengine.NewContext(r)
-		q := datastore.NewQuery("tblDATA").Filter("FarmID =", farmID) //.Order("-DateAdded")
-		for t := q.Run(c); ; {
-			var x values
-			_, err := t.Next(&x)
-			if err == datastore.Done {
-				break
-			}
-			if err != nil {
-				c.Infof("Error in querying datastore: %v", err)
-				errorHandler(w, r, http.StatusInternalServerError, "")
-			}
-
-			response, err := json.MarshalIndent(x, "", "  ")
-			if err != nil {
-				errorHandler(w, r, http.StatusInternalServerError, "")
-			}
-
-			fmt.Fprintln(w, string(response))
-		} //end for going through q.Run
-
-	} else {
-
-		vars := mux.Vars(r)
-		farmID := vars["farmID"]
-
-		decoder := json.NewDecoder(r.Body)
-		var v values
-		err := decoder.Decode(&v)
-		if err != nil {
-			errorHandler(w, r, http.StatusInternalServerError, "")
-			return
-		}
-
-		vals := values{
-			//TimeCreated: time.Now(),
-			TimeStored: time.Now(),
-			VariableID: farmID,
-			DeviceUse:  "M",
-			FarmID:     farmID,
-			Token:      r.Header.Get("X-Farm-Token"),
-			Value:      v.Value,
-		}
-
-		c := appengine.NewContext(r)
-
-		key, err := datastore.Put(c, datastore.NewIncompleteKey(c, "tblDATA", nil), &vals)
-		if err != nil {
-			errorHandler(w, r, http.StatusNotFound, "")
-			return
-		}
-		fmt.Print(key)
-		response, err := json.MarshalIndent(vals, "", "  ")
-		if err != nil {
-			errorHandler(w, r, http.StatusInternalServerError, "")
-		}
-		fmt.Fprintln(w, string(response))
-
-	}
-}
-
-func createRecipeHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/createrecipe/" {
-		errorHandler(w, r, http.StatusNotFound, "")
-		return
-	}
-	if r.Method == "GET" {
-
-		page := template.Must(template.ParseFiles(
-			"static/_base.gtpl",
-			"static/createRecipe.gtpl",
-		))
-
-		if err := page.Execute(w, nil); err != nil {
-			errorHandler(w, r, http.StatusInternalServerError, err.Error())
-			return
-		}
-
-	} else {
-
-		c := appengine.NewContext(r)
-		q, err := datastore.NewQuery("tblRecipes").KeysOnly().Count(c) //.Filter("Name =", recipeID) //.Order("-DateAdded")
-		if err != nil {
-			fmt.Fprintf(w, `count err: %s`, err)
-			return
-		}
-		i := strconv.Itoa(q)
-		recipe := recipes{
-			Recipeid:    "recipe" + i,
-			Name:        r.FormValue("recipename"),
-			Description: r.FormValue("description"),
-			DateCreated: time.Now(),
-			RecipeVars:  "[" + r.FormValue("var1") + ", " + r.FormValue("var2") + ", " + r.FormValue("var3") + ", " + r.FormValue("var4") + ", " + r.FormValue("var5") + "]",
-		}
-
-		key, err := datastore.Put(c, datastore.NewIncompleteKey(c, "tblRecipes", nil), &recipe)
-		if err != nil {
-			errorHandler(w, r, http.StatusInternalServerError, "")
-			return
-		}
-		fmt.Print(key)
-		http.Redirect(w, r, "/createrecipe/", http.StatusFound)
-	}
-}
-
-func recipeIndexHandler(w http.ResponseWriter, r *http.Request) {
-
-	// if r.URL.Path != "/apiv1/recipe/" {
-	// 	errorHandler(w, r, http.StatusNotFound, "")
-	// 	return
-	// }
-	c := appengine.NewContext(r)
-	q := datastore.NewQuery("tblRecipes") //.Filter("Recipeid =", recipeID)
-
-	var recipe []recipes
-	if _, err := q.GetAll(c, &recipe); err != nil {
-		errorHandler(w, r, http.StatusInternalServerError, "")
-		return
-	}
-
-	response, err := json.MarshalIndent(recipe, "", "  ")
-	if err != nil {
-		errorHandler(w, r, http.StatusInternalServerError, "")
-	}
-	fmt.Fprintln(w, string(response))
-}
-
-func recipeValHandler(w http.ResponseWriter, r *http.Request) {
-
-	c := appengine.NewContext(r)
-
-	if r.Method == "GET" {
-		vars := mux.Vars(r)
-		recipeID := vars["recipeID"]
-		//fmt.Fprintln(w, "Recipe ID:", recipeID)
-
-		q := datastore.NewQuery("tblRecipes").Filter("Recipeid =", recipeID)
-
-		var recipe []recipes
-		if _, err := q.GetAll(c, &recipe); err != nil {
-			errorHandler(w, r, http.StatusInternalServerError, "")
-			return
-		}
-
-		response, err := json.MarshalIndent(recipe, "", "  ")
-		if err != nil {
-			errorHandler(w, r, http.StatusInternalServerError, "")
-		}
-		fmt.Fprintln(w, string(response))
-
-	} else {
-		fmt.Fprintln(w, "ACCESS DENIED!")
-		return
-	}
-}
-
-func apiIndexHandler(w http.ResponseWriter, r *http.Request) {
-
-	if r.URL.Path != "/apiv1/" {
-		errorHandler(w, r, http.StatusNotFound, "")
-		return
-	}
-
-	if r.Method == "GET" {
-		fmt.Fprintln(w, "BUKID UTILITY API VERSION 1.0")
-		fmt.Fprintln(w, time.Now())
-
-	} else {
-		fmt.Fprint(w, "ACCESS DENIED!\n")
-		return
-	}
-
+	http.Handle("/", router)
 }
 
 func mainHandler(w http.ResponseWriter, r *http.Request) {
@@ -321,51 +68,6 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-}
-func masterListHandler(w http.ResponseWriter, r *http.Request) {
-
-	if r.URL.Path != "/master/" {
-		errorHandler(w, r, http.StatusNotFound, "")
-		return
-	}
-	c := appengine.NewContext(r)
-
-	if r.Method == "GET" {
-		q := datastore.NewQuery("tblVariables") //.Filter("VariableName =", "PH")
-
-		var vars []variables
-		if _, err := q.GetAll(c, &vars); err != nil {
-			errorHandler(w, r, http.StatusInternalServerError, "")
-			return
-		}
-
-		page := template.Must(template.ParseFiles(
-			"static/_base.gtpl",
-			"static/variables.gtpl",
-		))
-		if err := page.Execute(w, vars); err != nil {
-			errorHandler(w, r, http.StatusInternalServerError, err.Error())
-			return
-		}
-
-	} else {
-
-		vars := variables{
-			VariableName: r.FormValue("variableName"),
-			Description:  r.FormValue("variableDescription"),
-			Unit:         r.FormValue("variableUnit"),
-			Validation:   r.FormValue("variableValidation"),
-			DateAdded:    time.Now(),
-		}
-
-		_, err := datastore.Put(c, datastore.NewIncompleteKey(c, "tblVariables", nil), &vars)
-		if err != nil {
-			errorHandler(w, r, http.StatusInternalServerError, "")
-			return
-		}
-
-		http.Redirect(w, r, "/master/", http.StatusFound)
-	}
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
